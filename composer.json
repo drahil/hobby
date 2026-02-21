@@ -1,0 +1,13 @@
+{
+    "require": {
+        "php": ">=8.3",
+        "predis/predis": "^3.4",
+        "ext-pcntl": "*"
+    },
+    "autoload": {
+        "psr-4": {
+            "src\\": "src/",
+            "hobbies\\": "hobbies/"
+        }
+    }
+}
