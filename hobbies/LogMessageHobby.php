@@ -8,7 +8,7 @@ use src\Attributes\MaxAttempts;
 use src\Attributes\OnQueue;
 use src\Contracts\Hobby;
 
-#[OnQueue('default')]
+#[OnQueue('inspect-hobby')]
 #[MaxAttempts(3)]
 readonly class LogMessageHobby implements Hobby
 {

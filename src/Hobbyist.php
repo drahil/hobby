@@ -6,14 +6,22 @@ namespace src;
 
 use Predis\Client;
 use ReflectionClass;
+use src\Attributes\ExecuteConcurrently;
 use src\Attributes\MaxAttempts;
+use src\Contracts\Hobby;
+use src\ValueObjects\AdvanceResult;
+use src\ValueObjects\JobContext;
 
 final class Hobbyist
 {
     private bool $running = true;
+    private readonly CooperativeExecutor $cooperativeExecutor;
 
-    public function __construct(private readonly Client $redis)
-    {
+    public function __construct(
+        private readonly Client $redis,
+        ?CooperativeExecutor $cooperativeExecutor = null,
+    ) {
+        $this->cooperativeExecutor = $cooperativeExecutor ?? new CooperativeExecutor();
         pcntl_signal(SIGTERM, fn() => $this->running = false);
         pcntl_signal(SIGINT,  fn() => $this->running = false);
     }
@@ -21,19 +29,20 @@ final class Hobbyist
     public function run(string $queue = 'default'): void
     {
         while ($this->running) {
-            pcntl_signal_dispatch();
+            $this->prepareWorkerLoop();
 
-            $this->promoteDelayedJobs();
-
-            /**
-             * BLPOP blocks waiting to pop from the left (front) of the list,
-             * returns when a job arrives or the 2 second timeout expires
-             */
-            $item = $this->redis->blpop(["queue:{$queue}"], 2);
-
-            if ($item !== null) {
-                $this->process($item[1]);
+            if ($this->advanceConcurrentWork()) {
+                continue;
             }
+
+            $payload = $this->pullNextPayload($queue);
+
+            if ($payload !== null) {
+                $this->process($payload);
+                continue;
+            }
+
+            $this->idle();
         }
     }
 
@@ -50,33 +59,31 @@ final class Hobbyist
 
         $maxAttempts = $this->resolveMaxAttempts($hobby);
 
-        try {
-            $hobby->handle();
-            $this->output("✓ {$class} succeeded (attempt {$attempts}/{$maxAttempts})");
-        } catch (\Throwable $e) {
-            if ($attempts < $maxAttempts) {
-                /**
-                 * push the hobby to the right (end) of the queue
-                 * this means that queue is FIFO
-                 */
-                $this->redis->rpush("queue:{$queue}", (array) json_encode([
-                    'class' => $class,
-                    'args' => $args,
-                    'attempts' => $attempts,
-                    'queue' => $queue,
-                ]));
-                $this->output("↺ {$class} failed, retrying (attempt {$attempts}/{$maxAttempts}): {$e->getMessage()}");
-            } else {
-                $this->redis->rpush('queue:failed', (array) json_encode([
-                    'class' => $class,
-                    'args' => $args,
-                    'attempts' => $attempts,
-                    'queue' => $queue,
-                    'error' => $e->getMessage(),
-                ]));
-                $this->output("✗ {$class} failed permanently after {$attempts} attempts: {$e->getMessage()}");
-            }
+        if ($this->runsInFiber($hobby)) {
+            $this->cooperativeExecutor->schedule(
+                $hobby,
+                new JobContext(
+                    class: $class,
+                    args: $args,
+                    attempts: $attempts,
+                    maxAttempts: $maxAttempts,
+                    queue: $queue,
+                ),
+            );
+
+            return;
         }
+
+        $this->handleHobbyExecution(
+            hobby: $hobby,
+            context: new JobContext(
+                class: $class,
+                args: $args,
+                attempts: $attempts,
+                maxAttempts: $maxAttempts,
+                queue: $queue,
+            ),
+        );
     }
 
     private function promoteDelayedJobs(): void
@@ -102,10 +109,114 @@ final class Hobbyist
         echo sprintf("[%s] %s\n", date('H:i:s'), $message);
     }
 
+    private function prepareWorkerLoop(): void
+    {
+        pcntl_signal_dispatch();
+        $this->promoteDelayedJobs();
+    }
+
+    private function advanceConcurrentWork(): bool
+    {
+        $advanceResult = $this->cooperativeExecutor->advance();
+        $this->handleConcurrentAdvanceResult($advanceResult);
+
+        return ! $advanceResult->isIdle();
+    }
+
+    private function pullNextPayload(string $queue): ?string
+    {
+        $item = $this->shouldBlockOnQueue()
+            ? $this->redis->blpop(["queue:{$queue}"], 2)
+            : $this->redis->lpop("queue:{$queue}");
+
+        if ($item === null) {
+            return null;
+        }
+
+        return is_array($item) ? $item[1] : $item;
+    }
+
+    private function shouldBlockOnQueue(): bool
+    {
+        return ! $this->cooperativeExecutor->hasScheduledTasks();
+    }
+
+    private function idle(): void
+    {
+        if (! $this->cooperativeExecutor->hasScheduledTasks()) {
+            return;
+        }
+
+        usleep(10_000);
+    }
+
     private function resolveMaxAttempts(object $hobby): int
     {
         $attributes = (new ReflectionClass($hobby))->getAttributes(MaxAttempts::class);
 
         return $attributes ? $attributes[0]->newInstance()->tries : 3;
+    }
+
+    private function runsInFiber(object $hobby): bool
+    {
+        $attributes = (new ReflectionClass($hobby))->getAttributes(ExecuteConcurrently::class);
+
+        return $attributes ? $attributes[0]->newInstance()->enabled : false;
+    }
+
+    private function handleConcurrentAdvanceResult(AdvanceResult $advanceResult): void
+    {
+        if ($advanceResult->task === null || ! $advanceResult->task->context instanceof JobContext) {
+            return;
+        }
+
+        if ($advanceResult->isCompleted()) {
+            $this->outputSuccess($advanceResult->task->context);
+
+            return;
+        }
+
+        if ($advanceResult->isFailed() && $advanceResult->error !== null) {
+            $this->handleFailure($advanceResult->task->context, $advanceResult->error);
+        }
+    }
+
+    private function handleHobbyExecution(Hobby $hobby, JobContext $context): void
+    {
+        try {
+            $hobby->handle();
+            $this->outputSuccess($context);
+        } catch (\Throwable $e) {
+            $this->handleFailure($context, $e);
+        }
+    }
+
+    private function outputSuccess(JobContext $context): void
+    {
+        $this->output("✓ {$context->class} succeeded (attempt {$context->attempts}/{$context->maxAttempts})");
+    }
+
+    private function handleFailure(JobContext $context, \Throwable $e): void
+    {
+        if ($context->attempts < $context->maxAttempts) {
+            $this->redis->rpush("queue:{$context->queue}", (array) json_encode([
+                'class' => $context->class,
+                'args' => $context->args,
+                'attempts' => $context->attempts,
+                'queue' => $context->queue,
+            ]));
+            $this->output("↺ {$context->class} failed, retrying (attempt {$context->attempts}/{$context->maxAttempts}): {$e->getMessage()}");
+
+            return;
+        }
+
+        $this->redis->rpush('queue:failed', (array) json_encode([
+            'class' => $context->class,
+            'args' => $context->args,
+            'attempts' => $context->attempts,
+            'queue' => $context->queue,
+            'error' => $e->getMessage(),
+        ]));
+        $this->output("✗ {$context->class} failed permanently after {$context->attempts} attempts: {$e->getMessage()}");
     }
 }
