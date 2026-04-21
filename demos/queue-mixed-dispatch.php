@@ -3,11 +3,9 @@
 declare(strict_types=1);
 
 require_once dirname(__DIR__) . '/vendor/autoload.php';
-require_once __DIR__ . '/QueuedFiberAwaitHobby.php';
-require_once __DIR__ . '/QueuedPlainLogHobby.php';
 
-use demos\QueuedFiberAwaitHobby;
-use demos\QueuedPlainLogHobby;
+use hobbies\QueuedFiberAwaitHobby;
+use hobbies\QueuedPlainLogHobby;
 use src\Dispatcher;
 
 $dispatcher = new Dispatcher(new Predis\Client());

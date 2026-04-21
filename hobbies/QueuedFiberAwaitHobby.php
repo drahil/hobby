@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace demos;
+namespace hobbies;
 
 use src\Async;
 use src\Attributes\ExecuteConcurrently;

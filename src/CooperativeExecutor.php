@@ -12,7 +12,6 @@ use src\ValueObjects\Task;
 
 final class CooperativeExecutor
 {
-    /** @var list<Task> */
     private array $tasks = [];
 
     public function __construct(
@@ -120,7 +119,7 @@ final class CooperativeExecutor
 
     private function resolveRunAt(mixed $signal): float
     {
-        if (is_array($signal) && in_array($signal['type'] ?? null, ['sleep', 'await'], true)) {
+        if (is_array($signal) && ($signal['type'] ?? null) === 'await') {
             return (float) ($signal['until'] ?? microtime(true));
         }
 

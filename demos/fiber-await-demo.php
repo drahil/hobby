@@ -3,14 +3,19 @@
 declare(strict_types=1);
 
 require_once dirname(__DIR__) . '/vendor/autoload.php';
-require_once __DIR__ . '/DemoAwaitResolver.php';
-require_once __DIR__ . '/FiberAwaitDemoHobby.php';
+require_once __DIR__ . '/CompanyProfileAwaitHandler.php';
+require_once __DIR__ . '/CompanyRiskScoreAwaitHandler.php';
 
-use demos\DemoAwaitResolver;
-use demos\FiberAwaitDemoHobby;
+use demos\CompanyProfileAwaitHandler;
+use demos\CompanyRiskScoreAwaitHandler;
+use hobbies\FiberAwaitDemoHobby;
+use src\CompositeAwaitResolver;
 use src\CooperativeExecutor;
 
-$executor = new CooperativeExecutor(new DemoAwaitResolver());
+$executor = new CooperativeExecutor(new CompositeAwaitResolver([
+    new CompanyProfileAwaitHandler(),
+    new CompanyRiskScoreAwaitHandler(),
+]));
 
 $executor->schedule(new FiberAwaitDemoHobby('acme'));
 $executor->schedule(new FiberAwaitDemoHobby('globex'));
