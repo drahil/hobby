@@ -10,7 +10,7 @@ use src\Attributes\ExecuteConcurrently;
 use src\Attributes\MaxAttempts;
 use src\Contracts\Hobby;
 use src\ValueObjects\AdvanceResult;
-use src\ValueObjects\JobContext;
+use src\ValueObjects\HobbyContext;
 
 final class Hobbyist
 {
@@ -58,31 +58,23 @@ final class Hobbyist
         $hobby = new $class(...$args);
 
         $maxAttempts = $this->resolveMaxAttempts($hobby);
+        $context = new HobbyContext(
+            class: $class,
+            args: $args,
+            attempts: $attempts,
+            maxAttempts: $maxAttempts,
+            queue: $queue,
+        );
 
         if ($this->runsInFiber($hobby)) {
-            $this->cooperativeExecutor->schedule(
-                $hobby,
-                new JobContext(
-                    class: $class,
-                    args: $args,
-                    attempts: $attempts,
-                    maxAttempts: $maxAttempts,
-                    queue: $queue,
-                ),
-            );
+            $this->cooperativeExecutor->schedule($hobby, $context);
 
             return;
         }
 
         $this->handleHobbyExecution(
             hobby: $hobby,
-            context: new JobContext(
-                class: $class,
-                args: $args,
-                attempts: $attempts,
-                maxAttempts: $maxAttempts,
-                queue: $queue,
-            ),
+            context: $context,
         );
     }
 
@@ -166,7 +158,7 @@ final class Hobbyist
 
     private function handleConcurrentAdvanceResult(AdvanceResult $advanceResult): void
     {
-        if ($advanceResult->task === null || ! $advanceResult->task->context instanceof JobContext) {
+        if ($advanceResult->task === null || ! $advanceResult->task->context instanceof HobbyContext) {
             return;
         }
 
@@ -181,7 +173,7 @@ final class Hobbyist
         }
     }
 
-    private function handleHobbyExecution(Hobby $hobby, JobContext $context): void
+    private function handleHobbyExecution(Hobby $hobby, HobbyContext $context): void
     {
         try {
             $hobby->handle();
@@ -191,12 +183,12 @@ final class Hobbyist
         }
     }
 
-    private function outputSuccess(JobContext $context): void
+    private function outputSuccess(HobbyContext $context): void
     {
         $this->output("✓ {$context->class} succeeded (attempt {$context->attempts}/{$context->maxAttempts})");
     }
 
-    private function handleFailure(JobContext $context, \Throwable $e): void
+    private function handleFailure(HobbyContext $context, \Throwable $e): void
     {
         if ($context->attempts < $context->maxAttempts) {
             $this->redis->rpush("queue:{$context->queue}", (array) json_encode([

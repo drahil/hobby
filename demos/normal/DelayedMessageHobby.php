@@ -2,16 +2,16 @@
 
 declare(strict_types=1);
 
-namespace hobbies;
+namespace demos\normal;
 
 use src\Attributes\Delay;
 use src\Attributes\MaxAttempts;
 use src\Attributes\OnQueue;
 use src\Contracts\Hobby;
 
-#[OnQueue('test')]
+#[OnQueue('normal-demo')]
 #[MaxAttempts(3)]
-#[Delay(10)]
+#[Delay(5)]
 readonly class DelayedMessageHobby implements Hobby
 {
     public function __construct(
@@ -20,8 +20,16 @@ readonly class DelayedMessageHobby implements Hobby
 
     public function handle(): void
     {
+        $path = dirname(__DIR__, 2) . '/storage/logs.txt';
+
+        if (! is_dir(dirname($path))) {
+            mkdir(dirname($path), recursive: true);
+        }
+
         $line = sprintf("[%s] (delayed) %s\n", date('Y-m-d H:i:s'), $this->message);
 
-        file_put_contents(__DIR__ . '/../storage/logs.txt', $line, FILE_APPEND);
+        if (file_put_contents($path, $line, FILE_APPEND) === false) {
+            throw new \RuntimeException("Failed to write to {$path}");
+        }
     }
 }

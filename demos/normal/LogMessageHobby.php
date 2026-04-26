@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-namespace hobbies;
+namespace demos\normal;
 
 use src\Attributes\MaxAttempts;
 use src\Attributes\OnQueue;
 use src\Contracts\Hobby;
 
-#[OnQueue('inspect-hobby')]
+#[OnQueue('normal-demo')]
 #[MaxAttempts(3)]
 readonly class LogMessageHobby implements Hobby
 {
@@ -18,7 +18,7 @@ readonly class LogMessageHobby implements Hobby
 
     public function handle(): void
     {
-        $path = __DIR__ . '/../storage/logs.txt';
+        $path = dirname(__DIR__, 2) . '/storage/logs.txt';
 
         if (! is_dir(dirname($path))) {
             mkdir(dirname($path), recursive: true);

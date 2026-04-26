@@ -6,8 +6,7 @@
     },
     "autoload": {
         "psr-4": {
-            "src\\": "src/",
-            "hobbies\\": "hobbies/"
+            "src\\": "src/"
         }
     }
 }

@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace src;
 
 use Fiber;
-use src\Contracts\AwaitResolver;
+use src\Contracts\Awaitable;
 use src\Contracts\Hobby;
 use src\ValueObjects\AdvanceResult;
 use src\ValueObjects\Task;
@@ -14,31 +14,14 @@ final class CooperativeExecutor
 {
     private array $tasks = [];
 
-    public function __construct(
-        private readonly ?AwaitResolver $awaitResolver = null,
-    ) {}
-
     public function schedule(Hobby $hobby, mixed $context = null): void
     {
         $this->tasks[] = $this->makeTask($hobby, $context);
     }
 
-    /** @return list<Task> */
-    public function scheduledTasks(): array
-    {
-        return $this->tasks;
-    }
-
     public function hasScheduledTasks(): bool
     {
         return $this->tasks !== [];
-    }
-
-    public function scheduleMany(array $hobbies): void
-    {
-        foreach ($hobbies as $hobby) {
-            $this->schedule($hobby);
-        }
     }
 
     public function advance(): AdvanceResult
@@ -52,8 +35,14 @@ final class CooperativeExecutor
         $task = $this->tasks[$taskIndex];
 
         try {
-            $signal = $task->started
-                ? $task->fiber->resume($this->resolveResumeValue($task))
+            if ($task->fiber->isStarted() && $this->shouldKeepWaiting($task)) {
+                $this->tasks[$taskIndex] = $this->rescheduleWaitingTask($task);
+
+                return AdvanceResult::progressed();
+            }
+
+            $waitingOn = $task->fiber->isStarted()
+                ? $this->resumeTask($task)
                 : $task->fiber->start();
         } catch (\Throwable $exception) {
             $failedTask = $task;
@@ -70,11 +59,9 @@ final class CooperativeExecutor
         }
 
         $this->tasks[$taskIndex] = new Task(
-            hobby: $task->hobby,
             fiber: $task->fiber,
-            started: true,
-            runAt: $this->resolveRunAt($signal),
-            signal: $signal,
+            runAt: $this->resolveRunAt($waitingOn),
+            waitingOn: $waitingOn,
             context: $task->context,
         );
 
@@ -95,11 +82,9 @@ final class CooperativeExecutor
     private function makeTask(Hobby $hobby, mixed $context = null): Task
     {
         return new Task(
-            hobby: $hobby,
             fiber: new Fiber(static fn() => $hobby->handle()),
-            started: false,
             runAt: microtime(true),
-            signal: null,
+            waitingOn: null,
             context: $context,
         );
     }
@@ -117,26 +102,93 @@ final class CooperativeExecutor
         return null;
     }
 
-    private function resolveRunAt(mixed $signal): float
+    private function resolveRunAt(mixed $waitingOn): float
     {
-        if (is_array($signal) && ($signal['type'] ?? null) === 'await') {
-            return (float) ($signal['until'] ?? microtime(true));
+        if (is_array($waitingOn) && ($waitingOn['awaitable'] ?? null) instanceof Awaitable) {
+            $resumeAt = $waitingOn['awaitable']->nextCheckAt();
+            $timeoutAt = $waitingOn['timeoutAt'] ?? null;
+
+            return $timeoutAt === null ? $resumeAt : min($resumeAt, (float) $timeoutAt);
         }
 
         return microtime(true);
     }
 
-    private function resolveResumeValue(Task $task): mixed
+    private function resolveAwaitResult(Task $task): mixed
     {
-        if (! is_array($task->signal) || ($task->signal['type'] ?? null) !== 'await') {
+        if (! $this->isAwaiting($task)) {
             return null;
         }
 
-        if ($this->awaitResolver === null) {
-            throw new \LogicException('Await signal received, but no await resolver is configured.');
+        $awaitable = $this->awaitable($task);
+        $now = microtime(true);
+
+        if ($this->hasTimedOut($task, $now)) {
+            throw new \RuntimeException('Awaitable timed out.');
         }
 
-        return $this->awaitResolver->resolve($task->signal);
+        return $awaitable->result();
+    }
+
+    private function resumeTask(Task $task): mixed
+    {
+        try {
+            $result = $this->resolveAwaitResult($task);
+        } catch (\Throwable $exception) {
+            return $task->fiber->throw($exception);
+        }
+
+        return $task->fiber->resume($result);
+    }
+
+    private function shouldKeepWaiting(Task $task): bool
+    {
+        if (! $this->isAwaiting($task)) {
+            return false;
+        }
+
+        $now = microtime(true);
+
+        return ! $this->hasTimedOut($task, $now)
+            && ! $this->awaitable($task)->ready();
+    }
+
+    private function rescheduleWaitingTask(Task $task): Task
+    {
+        return new Task(
+            fiber: $task->fiber,
+            runAt: $this->resolveRunAt($task->waitingOn),
+            waitingOn: $task->waitingOn,
+            context: $task->context,
+        );
+    }
+
+    private function isAwaiting(Task $task): bool
+    {
+        return is_array($task->waitingOn)
+            && ($task->waitingOn['awaitable'] ?? null) instanceof Awaitable;
+    }
+
+    private function awaitable(Task $task): Awaitable
+    {
+        $awaitable = $task->waitingOn['awaitable'] ?? null;
+
+        if (! $awaitable instanceof Awaitable) {
+            throw new \LogicException('Await signal received without an awaitable.');
+        }
+
+        return $awaitable;
+    }
+
+    private function hasTimedOut(Task $task, float $now): bool
+    {
+        if (! is_array($task->waitingOn)) {
+            return false;
+        }
+
+        $timeoutAt = $task->waitingOn['timeoutAt'] ?? null;
+
+        return $timeoutAt !== null && (float) $timeoutAt <= $now;
     }
 
     private function microsecondsUntilNextTask(): int

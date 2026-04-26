@@ -15,9 +15,6 @@ final readonly class Dispatcher
     public function __construct(private Client $redis)
     {}
 
-    /**
-     * @throws \ReflectionException
-     */
     public function dispatch(Hobby $hobby): void
     {
         $queue = $this->resolveQueue($hobby);
@@ -54,9 +51,6 @@ final readonly class Dispatcher
         return $attributes ? $attributes[0]->newInstance()->name : 'default';
     }
 
-    /**
-     * @throws \ReflectionException
-     */
     private function extractArgs(object $hobby): array
     {
         $reflection = new ReflectionClass($hobby);

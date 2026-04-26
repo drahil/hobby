@@ -37,11 +37,6 @@ final readonly class AdvanceResult
         return $this->status === 'idle';
     }
 
-    public function isProgressed(): bool
-    {
-        return $this->status === 'progressed';
-    }
-
     public function isCompleted(): bool
     {
         return $this->status === 'completed';
