@@ -9,7 +9,4 @@ use Attribute;
 #[Attribute(Attribute::TARGET_CLASS)]
 final readonly class ExecuteConcurrently
 {
-    public function __construct(
-        public bool $enabled = true,
-    ) {}
 }

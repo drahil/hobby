@@ -151,9 +151,7 @@ final class Hobbyist
 
     private function runsInFiber(object $hobby): bool
     {
-        $attributes = (new ReflectionClass($hobby))->getAttributes(ExecuteConcurrently::class);
-
-        return $attributes ? $attributes[0]->newInstance()->enabled : false;
+        return (new ReflectionClass($hobby))->getAttributes(ExecuteConcurrently::class) !== [];
     }
 
     private function handleConcurrentAdvanceResult(AdvanceResult $advanceResult): void
