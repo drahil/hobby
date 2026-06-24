@@ -11,15 +11,30 @@ use ReflectionNamedType;
 class Container
 {
     private array $bindings = [];
+    private array $instances = [];
     
     public function bind(string $abstract, string|callable $concrete): void
     {
         $this->bindings[$abstract] = $concrete;
     }
 
-    public function singleton()
+    public function singleton(string $abstract, string|callable $concrete): void
     {
-        //
+        $this->bindings[$abstract] = function (self $container) use ($abstract, $concrete): object {
+            if (isset($this->instances[$abstract])) {
+                return $this->instances[$abstract];
+            }
+
+            $resolved = is_string($concrete)
+                ? $container->build($concrete)
+                : $concrete($container);
+
+            if (! is_object($resolved)) {
+                throw new Exception("Singleton binding for {$abstract} did not resolve to an object.");
+            }
+
+            return $this->instances[$abstract] = $resolved;
+        };
     }
 
     public function make(string $abstract): object
