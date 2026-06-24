@@ -6,6 +6,7 @@ namespace src;
 
 use Exception;
 use ReflectionClass;
+use ReflectionMethod;
 use ReflectionNamedType;
 
 class Container
@@ -39,6 +40,10 @@ class Container
 
     public function make(string $abstract): object
     {
+        if (isset($this->instances[$abstract])) {
+            return $this->instances[$abstract];
+        }
+
         $concrete = $this->bindings[$abstract] ?? $abstract;
 
         if (is_string($concrete)) {
@@ -96,13 +101,42 @@ class Container
         return $reflection->newInstanceArgs($dependencies);
     }
 
-    public function instance()
+    public function instance(string $abstract, object $instance): void
     {
-        //
+        $this->instances[$abstract] = $instance;
     }
 
-    public function call()
+    public function call(object $object, string $method = 'handle'): mixed
     {
-        //
+        $class = $object::class;
+
+        if (! method_exists($object, $method)) {
+            throw new Exception("Method {$class}::{$method} does not exist.");
+        }
+
+        $reflection = new ReflectionMethod($object, $method);
+
+        if (! $reflection->isPublic()) {
+            throw new Exception("Method {$class}::{$method} is not public.");
+        }
+
+        $dependencies = [];
+
+        foreach ($reflection->getParameters() as $parameter) {
+            $type = $parameter->getType();
+
+            if (! $type instanceof ReflectionNamedType || $type->isBuiltin()) {
+                if ($parameter->isDefaultValueAvailable()) {
+                    $dependencies[] = $parameter->getDefaultValue();
+                    continue;
+                }
+
+                throw new Exception("Unable to resolve parameter \${$parameter->getName()} for {$class}::{$method}.");
+            }
+
+            $dependencies[] = $this->make($type->getName());
+        }
+
+        return $reflection->invokeArgs($object, $dependencies);
     }
 }
