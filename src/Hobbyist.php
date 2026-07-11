@@ -16,12 +16,16 @@ final class Hobbyist
 {
     private bool $running = true;
     private readonly CooperativeExecutor $cooperativeExecutor;
+    private readonly Container $container;
 
     public function __construct(
         private readonly Client $redis,
         ?CooperativeExecutor $cooperativeExecutor = null,
+        ?Container $container = null,
     ) {
-        $this->cooperativeExecutor = $cooperativeExecutor ?? new CooperativeExecutor();
+        $this->container = $container ?? new Container();
+        $this->cooperativeExecutor = $cooperativeExecutor ?? new CooperativeExecutor($this->container);
+
         pcntl_signal(SIGTERM, fn() => $this->running = false);
         pcntl_signal(SIGINT,  fn() => $this->running = false);
     }
@@ -174,7 +178,7 @@ final class Hobbyist
     private function handleHobbyExecution(Hobby $hobby, HobbyContext $context): void
     {
         try {
-            $hobby->handle();
+            $this->container->call($hobby, 'handle');
             $this->outputSuccess($context);
         } catch (\Throwable $e) {
             $this->handleFailure($context, $e);

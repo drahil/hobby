@@ -6,5 +6,4 @@ namespace src\Contracts;
 
 interface Hobby
 {
-    public function handle(): void;
 }

@@ -13,7 +13,7 @@ class Container
 {
     private array $bindings = [];
     private array $instances = [];
-    
+
     public function bind(string $abstract, string|callable $concrete): void
     {
         $this->bindings[$abstract] = $concrete;
@@ -81,24 +81,9 @@ class Container
             return new $concrete();
         }
 
-        $dependencies = [];
-
-        foreach ($constructor->getParameters() as $parameter) {
-            $type = $parameter->getType();
-
-            if (! $type instanceof ReflectionNamedType || $type->isBuiltin()) {
-                if ($parameter->isDefaultValueAvailable()) {
-                    $dependencies[] = $parameter->getDefaultValue();
-                    continue;
-                }
-
-                throw new Exception("Unable to resolve parameter \${$parameter->getName()} for {$concrete}.");
-            }
-
-            $dependencies[] = $this->make($type->getName());
-        }
-
-        return $reflection->newInstanceArgs($dependencies);
+        return $reflection->newInstanceArgs(
+            $this->resolveParameters($constructor->getParameters(), $concrete),
+        );
     }
 
     public function instance(string $abstract, object $instance): void
@@ -120,9 +105,20 @@ class Container
             throw new Exception("Method {$class}::{$method} is not public.");
         }
 
+        return $reflection->invokeArgs(
+            $object,
+            $this->resolveParameters($reflection->getParameters(), "{$class}::{$method}"),
+        );
+    }
+
+    /**
+     * @param \ReflectionParameter[] $parameters
+     */
+    private function resolveParameters(array $parameters, string $target): array
+    {
         $dependencies = [];
 
-        foreach ($reflection->getParameters() as $parameter) {
+        foreach ($parameters as $parameter) {
             $type = $parameter->getType();
 
             if (! $type instanceof ReflectionNamedType || $type->isBuiltin()) {
@@ -131,12 +127,12 @@ class Container
                     continue;
                 }
 
-                throw new Exception("Unable to resolve parameter \${$parameter->getName()} for {$class}::{$method}.");
+                throw new Exception("Unable to resolve parameter \${$parameter->getName()} for {$target}.");
             }
 
             $dependencies[] = $this->make($type->getName());
         }
 
-        return $reflection->invokeArgs($object, $dependencies);
+        return $dependencies;
     }
 }

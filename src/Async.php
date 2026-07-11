@@ -19,8 +19,4 @@ final class Async
         ]);
     }
 
-    public static function suspendFor(float $seconds): void
-    {
-        self::await(new TimerAwaitable($seconds));
-    }
 }

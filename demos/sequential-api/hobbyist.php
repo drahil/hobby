@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-require_once dirname(__DIR__, 2) . '/vendor/autoload.php';
+$container = require dirname(__DIR__, 2) . '/bootstrap/container.php';
 require_once __DIR__ . '/CompanyLookupHobby.php';
 require_once __DIR__ . '/FakeBlockingCompanyApi.php';
 
 use src\Hobbyist;
 
-$hobbyist = new Hobbyist(new Predis\Client());
+$hobbyist = $container->make(Hobbyist::class);
 $hobbyist->run('sequential-api-demo');
