@@ -14,7 +14,7 @@ final readonly class InjectedWelcomeEmailHobby implements Hobby
         private string $email,
     ) {}
 
-    public function handle(FakeMailer $mailer): void
+    public function handle(Mailer $mailer): void
     {
         $mailer->sendWelcomeEmail($this->email);
     }

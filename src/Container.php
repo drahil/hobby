@@ -65,6 +65,10 @@ class Container
 
     private function build(string $concrete): object
     {
+        if (interface_exists($concrete)) {
+            throw new Exception("Cannot auto-resolve interface {$concrete}. Bind it to a concrete class first.");
+        }
+
         if (! class_exists($concrete)) {
             throw new Exception("Class {$concrete} does not exist.");
         }

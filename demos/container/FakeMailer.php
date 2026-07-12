@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace demos\container;
 
-final class FakeMailer
+final class FakeMailer implements Mailer
 {
     public function sendWelcomeEmail(string $email): void
     {
