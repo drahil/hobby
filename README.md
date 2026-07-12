@@ -53,3 +53,23 @@ php demos/sequential-api/dispatch.php
 ```
 
 Compare it with the concurrent demo. The sequential worker processes one hobby through both fake API waits before moving to the next hobby, while the concurrent worker suspends waiting hobbies and keeps starting other ones.
+
+## Container Injection Demo
+
+This demo shows the before and after of a hobby that needs a mailer service.
+
+```bash
+# terminal 1
+php demos/container/hobbyist.php
+
+# terminal 2
+php demos/container/dispatch.php
+```
+
+`ManualWelcomeEmailHobby` creates `FakeMailer` inside `handle()`. `InjectedWelcomeEmailHobby` keeps only serialized queue data in its constructor and receives a `Mailer` interface through `handle(Mailer $mailer)`.
+
+The container demo worker binds that interface to the fake implementation:
+
+```php
+$container->bind(Mailer::class, FakeMailer::class);
+```
