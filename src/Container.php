@@ -13,6 +13,7 @@ class Container
 {
     private array $bindings = [];
     private array $instances = [];
+    private array $resolving = [];
 
     public function bind(string $abstract, string|callable $concrete): void
     {
@@ -44,23 +45,35 @@ class Container
             return $this->instances[$abstract];
         }
 
-        $concrete = $this->bindings[$abstract] ?? $abstract;
+        if (in_array($abstract, $this->resolving, strict: true)) {
+            $dependencyChain = implode(' -> ', [...$this->resolving, $abstract]);
 
-        if (is_string($concrete)) {
-            return $this->build($concrete);
+            throw new Exception("Circular dependency detected: {$dependencyChain}.");
         }
 
-        if (is_callable($concrete)) {
-            $resolved = $concrete($this);
+        $this->resolving[] = $abstract;
 
-            if (! is_object($resolved)) {
-                throw new Exception("Binding for {$abstract} did not resolve to an object.");
+        try {
+            $concrete = $this->bindings[$abstract] ?? $abstract;
+
+            if (is_string($concrete)) {
+                return $this->build($concrete);
             }
 
-            return $resolved;
-        }
+            if (is_callable($concrete)) {
+                $resolved = $concrete($this);
 
-        throw new Exception("Unable to resolve {$abstract}.");
+                if (! is_object($resolved)) {
+                    throw new Exception("Binding for {$abstract} did not resolve to an object.");
+                }
+
+                return $resolved;
+            }
+
+            throw new Exception("Unable to resolve {$abstract}.");
+        } finally {
+            array_pop($this->resolving);
+        }
     }
 
     private function build(string $concrete): object
