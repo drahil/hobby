@@ -14,6 +14,10 @@ final class CooperativeExecutor
 {
     private array $tasks = [];
 
+    public function __construct(
+        private readonly Container $container = new Container(),
+    ) {}
+
     public function schedule(Hobby $hobby, mixed $context = null): void
     {
         $this->tasks[] = $this->makeTask($hobby, $context);
@@ -68,21 +72,10 @@ final class CooperativeExecutor
         return AdvanceResult::progressed();
     }
 
-    public function runUntilEmpty(): void
-    {
-        while ($this->tasks !== []) {
-            if (! $this->advance()->isIdle()) {
-                continue;
-            }
-
-            usleep($this->microsecondsUntilNextTask());
-        }
-    }
-
     private function makeTask(Hobby $hobby, mixed $context = null): Task
     {
         return new Task(
-            fiber: new Fiber(static fn() => $hobby->handle()),
+            fiber: new Fiber(fn() => $this->container->call($hobby, 'handle')),
             runAt: microtime(true),
             waitingOn: null,
             context: $context,
@@ -189,20 +182,6 @@ final class CooperativeExecutor
         $timeoutAt = $task->waitingOn['timeoutAt'] ?? null;
 
         return $timeoutAt !== null && (float) $timeoutAt <= $now;
-    }
-
-    private function microsecondsUntilNextTask(): int
-    {
-        if ($this->tasks === []) {
-            return 0;
-        }
-
-        $nextRunAt = min(array_map(
-            static fn(Task $task): float => $task->runAt,
-            $this->tasks,
-        ));
-
-        return max(0, (int) (($nextRunAt - microtime(true)) * 1_000_000));
     }
 
     private function removeTask(int $taskIndex): void
